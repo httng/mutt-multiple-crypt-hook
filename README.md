@@ -17,8 +17,10 @@ License
 -------
 
 Dale Woolridge didn't mention the license under which he released his
-patch to the public. I have taken the liberty to release this patch
-under a GPLv2 license.
+patch to the public. His patches are patches for mutt to enhance its
+functionality. They are thus a derivative work. As mutt is GPLv2
+licensed, so must derivative works be. I have taken the liberty to
+release this patch under a GPLv2 license.
 
 [dale-woolridge]: http://www.woolridge.ca/ "Dale Woolridge"
 [old-patches]: http://www.woolridge.ca/mutt/multiple-crypt-hook.html "Old multiple-crypt-hook patches"
