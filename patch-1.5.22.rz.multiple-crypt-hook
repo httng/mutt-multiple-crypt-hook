@@ -1,0 +1,248 @@
+diff -r 3306cb186f49 -r d3a382bd8786 PATCHES
+--- a/PATCHES	Tue Oct 29 00:11:16 2013 -0700
++++ b/PATCHES	Wed Nov 13 17:54:59 2013 +0100
+@@ -0,0 +1,1 @@
++patch-1.5.22.dw.multiple-crypt-hook.2
+diff -r 3306cb186f49 -r d3a382bd8786 doc/manual.xml.head
+--- a/doc/manual.xml.head	Tue Oct 29 00:11:16 2013 -0700
++++ b/doc/manual.xml.head	Wed Nov 13 17:54:59 2013 +0100
+@@ -3623,7 +3623,9 @@
+ destination address, or because, for some reasons, you need to override
+ the key Mutt would normally use.  The <command>crypt-hook</command>
+ command provides a method by which you can specify the ID of the public
+-key to be used when encrypting messages to a certain recipient.
++key to be used when encrypting messages to a certain recipient. You may 
++use multiple pgp-hook's with the same pattern; multiple matching 
++pgp-hook's result in the use of multiple keyids for recipient.
+ </para>
+ 
+ <para>
+diff -r 3306cb186f49 -r d3a382bd8786 doc/muttrc.man.head
+--- a/doc/muttrc.man.head	Tue Oct 29 00:11:16 2013 -0700
++++ b/doc/muttrc.man.head	Wed Nov 13 17:54:59 2013 +0100
+@@ -353,7 +353,10 @@
+ specify the ID of the public key to be used when encrypting messages
+ to a certain recipient.  The meaning of "key ID" is to be taken
+ broadly: This can be a different e-mail address, a numerical key ID,
+-or even just an arbitrary search string.
++or even just an arbitrary search string.  You may use multiple
++\fBpgp-hook\fPs with the same \fIpattern\fP; multiple matching
++\fBpgp-hook\fPs result in the use of multiple \fIkey-id\fPs for
++recipient.
+ .TP
+ \fBpush\fP \fIstring\fP
+ This command adds the named \fIstring\fP to the keyboard buffer.
+diff -r 3306cb186f49 -r d3a382bd8786 hook.c
+--- a/hook.c	Tue Oct 29 00:11:16 2013 -0700
++++ b/hook.c	Wed Nov 13 17:54:59 2013 +0100
+@@ -125,7 +125,11 @@
+ 	ptr->rx.not == not &&
+ 	!mutt_strcmp (pattern.data, ptr->rx.pattern))
+     {
++#ifdef M_CRYPTHOOK
++      if (data & (M_FOLDERHOOK | M_SENDHOOK | M_SEND2HOOK | M_MESSAGEHOOK | M_ACCOUNTHOOK | M_REPLYHOOK | M_CRYPTHOOK))
++#else
+       if (data & (M_FOLDERHOOK | M_SENDHOOK | M_SEND2HOOK | M_MESSAGEHOOK | M_ACCOUNTHOOK | M_REPLYHOOK))
++#endif
+       {
+ 	/* these hooks allow multiple commands with the same
+ 	 * pattern, so if we've already seen this pattern/command pair, just
+@@ -458,9 +462,25 @@
+   return _mutt_string_hook (chs, M_ICONVHOOK);
+ }
+ 
+-char *mutt_crypt_hook (ADDRESS *adr)
++LIST *mutt_crypt_hook (ADDRESS *adr)
+ {
+-  return _mutt_string_hook (adr->mailbox, M_CRYPTHOOK);
++  HOOK *hook;
++  LIST *key_list = NULL;
++
++  if (!adr && !adr->mailbox)
++    return (NULL);
++
++  for (hook = Hooks; hook; hook = hook->next)
++  {
++    if (!hook->command)
++      continue;
++    if (!(hook->type & M_CRYPTHOOK))
++      continue;
++
++    if ((regexec (hook->rx.rx, adr->mailbox, 0, NULL, 0) == 0) ^ hook->rx.not)
++      key_list = mutt_add_list (key_list, hook->command);
++  }
++  return (key_list);
+ }
+ 
+ #ifdef USE_SOCKET
+diff -r 3306cb186f49 -r d3a382bd8786 pgp.c
+--- a/pgp.c	Tue Oct 29 00:11:16 2013 -0700
++++ b/pgp.c	Wed Nov 13 17:54:59 2013 +0100
+@@ -1153,6 +1153,8 @@
+   char *keyID, *keylist = NULL;
+   size_t keylist_size = 0;
+   size_t keylist_used = 0;
++  LIST *hook_list = NULL;
++  LIST *hook = NULL;
+   ADDRESS *tmp = NULL, *addr = NULL;
+   ADDRESS **last = &tmp;
+   ADDRESS *p, *q;
+@@ -1186,70 +1188,97 @@
+     char buf[LONG_STRING];
+ 
+     q = p;
+-    k_info = NULL;
+ 
+-    if ((keyID = mutt_crypt_hook (p)) != NULL)
++    /*
++     * grab the list of matching hooks (matching on recipient address)
++     * process each entry singly so that auto key selection still works
++     */
++    hook_list = mutt_crypt_hook (p);
++    hook = hook_list;
++    while (1)
+     {
+       int r;
+-      snprintf (buf, sizeof (buf), _("Use keyID = \"%s\" for %s?"), keyID, p->mailbox);
+-      if ((r = mutt_yesorno (buf, M_YES)) == M_YES)
++
++      k_info = NULL;
++      key = NULL;
++
++      if (hook)
+       {
+-	if (is_numerical_keyid (keyID))
++	keyID = (char *)hook->data;
++	snprintf (buf, sizeof (buf), _("Use keyID = \"%s\" for %s?"), keyID, p->mailbox);
++	if ((r = mutt_yesorno (buf, M_YES)) == M_YES)
+ 	{
+-	  if (strncmp (keyID, "0x", 2) == 0)
+-	    keyID += 2;
+-	  goto bypass_selection;		/* you don't see this. */
++	  if (is_numerical_keyid (keyID))
++	  {
++	    if (strncmp (keyID, "0x", 2) == 0)
++	      keyID += 2;
++	    goto bypass_selection;		/* you don't see this. */
++	  }
++
++	  /* check for e-mail address */
++	if (strchr (keyID, '@') && 
++	      (addr = rfc822_parse_adrlist (NULL, keyID)))
++	  {
++	    if (fqdn) rfc822_qualify (addr, fqdn);
++	    q = addr;
++	  }
++	  else
++	    k_info = pgp_getkeybystr (keyID, KEYFLAG_CANENCRYPT, PGP_PUBRING);
+ 	}
+-	
+-	/* check for e-mail address */
+-	if (strchr (keyID, '@') && 
+-	    (addr = rfc822_parse_adrlist (NULL, keyID)))
++	else if (r == -1)
+ 	{
+-	  if (fqdn) rfc822_qualify (addr, fqdn);
+-	  q = addr;
++	  /*
++	   * yes, this implies that if one key fails they all do
++	   */
++	  FREE (&keylist);
++	  rfc822_free_address (&tmp);
++	  rfc822_free_address (&addr);
++	  mutt_free_list (&hook_list);
++	  return NULL;
+ 	}
+-	else
+-	  k_info = pgp_getkeybystr (keyID, KEYFLAG_CANENCRYPT, PGP_PUBRING);
+       }
+-      else if (r == -1)
++
++      if (k_info == NULL)
++	pgp_invoke_getkeys (q);
++
++      if (k_info == NULL && (k_info = pgp_getkeybyaddr (q, KEYFLAG_CANENCRYPT, PGP_PUBRING)) == NULL)
+       {
+-	FREE (&keylist);
+-	rfc822_free_address (&tmp);
+-	rfc822_free_address (&addr);
+-	return NULL;
++	snprintf (buf, sizeof (buf), _("Enter keyID for %s: "), q->mailbox);
++
++	if ((key = pgp_ask_for_key (buf, q->mailbox,
++				    KEYFLAG_CANENCRYPT, PGP_PUBRING)) == NULL)
++	{
++	  FREE (&keylist);
++	  rfc822_free_address (&tmp);
++	  rfc822_free_address (&addr);
++	  mutt_free_list (&hook_list);
++	  return NULL;
++	}
+       }
+-    }
++      else
++	key = k_info;
+ 
+-    if (k_info == NULL)
+-      pgp_invoke_getkeys (q);
+-
+-    if (k_info == NULL && (k_info = pgp_getkeybyaddr (q, KEYFLAG_CANENCRYPT, PGP_PUBRING)) == NULL)
+-    {
+-      snprintf (buf, sizeof (buf), _("Enter keyID for %s: "), q->mailbox);
+-
+-      if ((key = pgp_ask_for_key (buf, q->mailbox,
+-				  KEYFLAG_CANENCRYPT, PGP_PUBRING)) == NULL)
+-      {
+-	FREE (&keylist);
+-	rfc822_free_address (&tmp);
+-	rfc822_free_address (&addr);
+-	return NULL;
+-      }
+-    }
+-    else
+-      key = k_info;
+-
+-    keyID = pgp_keyid (key);
++      keyID = pgp_keyid (key);
+     
+   bypass_selection:
+-    keylist_size += mutt_strlen (keyID) + 4;
+-    safe_realloc (&keylist, keylist_size);
+-    sprintf (keylist + keylist_used, "%s0x%s", keylist_used ? " " : "",	/* __SPRINTF_CHECKED__ */
+-	     keyID);
+-    keylist_used = mutt_strlen (keylist);
++      keylist_size += mutt_strlen (keyID) + 4;
++      safe_realloc (&keylist, keylist_size);
++      sprintf (keylist + keylist_used, "%s0x%s", keylist_used ? " " : "",	/* __SPRINTF_CHECKED__ */
++	       keyID);
++      keylist_used = mutt_strlen (keylist);
+ 
+-    pgp_free_key (&key);
+-    rfc822_free_address (&addr);
++      pgp_free_key (&key);
++      rfc822_free_address (&addr);
++
++      if (!hook_list)
++	break;
++
++      hook = hook->next;
++      if (!hook)
++	break;
++
++    }
++    mutt_free_list (&hook_list);
+ 
+   }
+   rfc822_free_address (&tmp);
+diff -r 3306cb186f49 -r d3a382bd8786 protos.h
+--- a/protos.h	Tue Oct 29 00:11:16 2013 -0700
++++ b/protos.h	Wed Nov 13 17:54:59 2013 +0100
+@@ -146,7 +146,7 @@
+ char *mutt_get_body_charset (char *, size_t, BODY *);
+ const char *mutt_get_name (ADDRESS *);
+ char *mutt_get_parameter (const char *, PARAMETER *);
+-char *mutt_crypt_hook (ADDRESS *);
++LIST *mutt_crypt_hook (ADDRESS *);
+ char *mutt_make_date (char *, size_t);
+ 
+ const char *mutt_make_version (void);

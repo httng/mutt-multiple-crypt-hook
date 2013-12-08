@@ -1,0 +1,24 @@
+mutt-multiple-crypt-hook
+========================
+
+With this patch, you can have multiple crypt-hook instances with the
+same pattern (recipient). This allows one to specify multiple key-ids
+for a particular pattern (recipient). This comes in handy when one wants
+to send encrypted email to a mailinglist with a static set subscribers.
+
+Credits
+-------
+
+This patch was written by [Dale Woolridge][dale-woolridge] for mutt
+[versions 1.5.3 to 1.5.6][old-patches]. It was transcribed to mutt
+version 1.5.22 by Remco Rijnders.
+
+License
+-------
+
+Dale Woolridge didn't mention the license under which he released his
+patch to the public. I have taken the liberty to release this patch
+under a GPLv2 license.
+
+[dale-woolridge]: http://www.woolridge.ca/ "Dale Woolridge"
+[old-patches]: http://www.woolridge.ca/mutt/multiple-crypt-hook.html "Old multiple-crypt-hook patches"
