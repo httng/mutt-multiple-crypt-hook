@@ -6,7 +6,7 @@ diff -r 3306cb186f49 -r d3a382bd8786 PATCHES
 diff -r 3306cb186f49 -r d3a382bd8786 doc/manual.xml.head
 --- a/doc/manual.xml.head	Tue Oct 29 00:11:16 2013 -0700
 +++ b/doc/manual.xml.head	Wed Nov 13 17:54:59 2013 +0100
-@@ -3623,7 +3623,9 @@
+@@ -3627,7 +3627,9 @@
  destination address, or because, for some reasons, you need to override
  the key Mutt would normally use.  The <command>crypt-hook</command>
  command provides a method by which you can specify the ID of the public
