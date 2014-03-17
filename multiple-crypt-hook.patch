@@ -2,7 +2,7 @@ diff -r 3306cb186f49 -r d3a382bd8786 PATCHES
 --- a/PATCHES	Tue Oct 29 00:11:16 2013 -0700
 +++ b/PATCHES	Wed Nov 13 17:54:59 2013 +0100
 @@ -0,0 +1,1 @@
-+patch-1.5.22.dw.multiple-crypt-hook.2
++patch-1.5.23.rz.multiple-crypt-hook
 diff -r 3306cb186f49 -r d3a382bd8786 doc/manual.xml.head
 --- a/doc/manual.xml.head	Tue Oct 29 00:11:16 2013 -0700
 +++ b/doc/manual.xml.head	Wed Nov 13 17:54:59 2013 +0100
